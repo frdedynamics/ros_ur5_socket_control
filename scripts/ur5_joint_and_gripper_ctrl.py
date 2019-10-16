@@ -11,6 +11,7 @@ from geometry_msgs.msg import Pose
 from geometry_msgs.msg import PoseStamped, Quaternion
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
+from std_msgs.msg import Float64
 
 HOST = ''
 PORT = 30000
@@ -21,6 +22,7 @@ PC_SOCK.settimeout(5)
 PC_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 CMD_GRIP = False
+CMD_GRIP_POSITION = ""
 CMD_TCP_POSITION = ""
 CMD_JOINT_POSITIONS = ""
 
@@ -46,6 +48,10 @@ def callback_grip(data):
     global CMD_GRIP
     CMD_GRIP = data.data
 
+def callback_grip_pos(data):
+    global CMD_GRIP_POSITION
+    CMD_GRIP_POSITION = "(%f)" % (data.data)
+
 def callback_joint(data):
     global CMD_JOINT_POSITIONS
     CMD_JOINT_POSITIONS = "(%f, %f, %f, %f, %f, %f)" % (data.position[0], data.position[1], data.position[2], data.position[3], data.position[4], data.position[5])
@@ -56,6 +62,7 @@ def talker_listener():
     cmd_grip_prev = False
     cmd_tcp_position_prev = ""
     cmd_joint_positions_prev = ""
+    cmd_grip_position_prev = ""
     cartesian_pose_pub = rospy.Publisher(
         'cartesian_pose',
         PoseStamped,
@@ -71,7 +78,8 @@ def talker_listener():
     rospy.Subscriber("target_EE_pose", Pose, callback)
     rospy.Subscriber("cmd_joint", JointState, callback_joint)
     rospy.Subscriber("cmd_grip", Bool, callback_grip)
-    rate = rospy.Rate(1)
+    rospy.Subscriber("cmd_grip_pos", Float64, callback_grip_pos)
+    rate = rospy.Rate(50)
 
     rospy.loginfo("binding port..")
     PC_SOCK.bind((HOST, PORT))
@@ -102,7 +110,7 @@ def talker_listener():
             SOCK.send("(2)")
             time.sleep(0.01)
             data = SOCK.recv(1024)
-            print data
+            # print data
             msg_joint_state.header.stamp = rospy.get_rostime()
             l = list(data[1:len(data)-1].split(','))
             msg_joint_state.position = [float(i) for i in l]
@@ -112,7 +120,7 @@ def talker_listener():
             SOCK.send("(5)")
             time.sleep(0.01)
             data = SOCK.recv(1024)
-            print data
+            # print data
             msg_tcp.header.stamp = rospy.get_rostime()
             l = list(data[2:len(data)-1].split(','))
             l_float = [float(i) for i in l]
@@ -168,7 +176,16 @@ def talker_listener():
                 ack = SOCK.recv(1024)
                 if ack != "1":
                     rospy.logerr("cmd tcp failed failed with cmd: %s", CMD_TCP_POSITION)
-                print "new TCP position cmd: %s", CMD_TCP_POSITION
+                # print "new TCP position cmd: %s", CMD_TCP_POSITION
+
+	    if CMD_GRIP_POSITION != cmd_grip_position_prev:
+                SOCK.send("(7)")
+                time.sleep(0.01)
+                SOCK.send(CMD_GRIP_POSITION)
+                cmd_grip_position_prev = CMD_GRIP_POSITION
+                ack = SOCK.recv(1024)
+                if ack != "1":
+                    rospy.logerr("cmd grip position failed failed with cmd: %s", CMD_GRIP_POSITION)
 
         except socket.timeout as exception_e:
             rospy.logerr("socket timeout. check connection to UR5.")
